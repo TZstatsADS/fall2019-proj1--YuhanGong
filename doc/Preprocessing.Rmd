@@ -1,0 +1,128 @@
+---
+title: "Preprocessing for lyrics"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Overview
+
+"lyrics.csv" is a filtered corpus of 380,000+ song lyrics from from MetroLyrics. 
+In this R notebook, I will preprocess the raw textual data and dig out some interesting stories behind these lyrics.
+
+#### Preprocess data
+### step 1 - Load some required libraries for text mining 
++ `tm` is a framework for text mining applications within R;
++ `data.table` is a package for fast aggregation of large data;
++ `tidyverse` is an opinionated collection of R packages designed for data science. All packages share an underlying design philosophy, grammar, and data structures;
++ `tidytext` allows text mining using 'dplyr', 'ggplot2', and other tidy tools;
++ `DT` provides an R interface to the JavaScript library DataTables.
+
+```{r load libraries, warning=FALSE, message=FALSE}
+library(tm)
+library(data.table)
+library(tidytext)
+library(tidyverse)
+library(DT)
+```
+
+### step 2 - load data
+```{r}
+# load lyrics data
+load('C:/Users/YQW/Desktop/Lyrics/lyrics.RData') 
+```
+
+### step 3 - Preliminary cleaning of text
+We clean the text by converting all the letters to the lower case, and removing punctuation, numbers, empty words and extra white space.
+```{r}
+# function for removimg leading and trailing whitespace from character strings 
+leadingWhitespace <- content_transformer(function(x) str_trim(x, side = "both"))
+# remove stop words
+data("stop_words")
+word <- c("lot", "today", "months", "month", "wanna", "wouldnt", "wasnt", "ha", "na", "ooh", "da","gonna", "im", "dont", "aint", "wont", "yeah", "la", "oi", "nigga", "fuck","hey", "year","years", "last", "past","feel","ill",'ive','youll','youre','youve','shes','hes','shell','hell','isnt','arent','wasnt','werent','havent','hasnt','hadnt','wont','wouldnt','dont','doesnt','didnt','cant','couldnt','shouldnt','mightnt','mustnt','wouldve','shouldve','couldve','mightve','mustve')
+stop_words <- c(stop_words$word, word)
+# clean the data and make a corpus
+corpus <- VCorpus(VectorSource(dt_lyrics$lyrics))%>%
+  tm_map(content_transformer(tolower))%>%
+  tm_map(removePunctuation)%>%
+  tm_map(removeWords, character(0))%>%
+  tm_map(removeWords, stop_words)%>%
+  tm_map(removeNumbers)%>%
+  tm_map(stripWhitespace)%>%
+  tm_map(leadingWhitespace)
+```
+
+
+### step 4 - Stemming words and converting tm object to tidy object
+
+Stemming reduces a word to its word *stem*. We stem the words here and then convert the "tm" object to a "tidy" object for much faster processing.
+```{r}
+stemmed <- tm_map(corpus, stemDocument) %>%
+  tidy() %>%
+  select(text)
+
+head(stemmed)
+
+# one entry is one lyric after stemming 
+```
+
+### step 5 - Creating tidy format of the dictionary for unstemmed corpus (used for completing stems)
+```{r}
+# unnest_tokens is a tidytext function
+# tokenization: After using unnest_tokens, we??ve split each row of original unstemmed corpus so that there is one token (word) in each row of the new data frame (the column name would be dictionary, the first argument)
+
+dict <- tidy(corpus) %>%
+  select(text) %>%
+  unnest_tokens(dictionary, text)
+# corpus has a column called text (lyrics)
+head(dict)
+```
+
+### step 6 - Combining stems and dictionary into the same tibble
+
+```{r}
+# mutate: add a column named 'id' with number to be the row number
+completed <- stemmed %>%
+  mutate(id = row_number()) %>%
+  unnest_tokens(stems, text) %>%
+  bind_cols(dict) 
+head(completed)
+```
+
+### step 7 - Stem completion
+Lastly, we complete the stems by picking the corresponding word with the highest frequency.
+
+```{r warning=FALSE, message=FALSE}
+completed <- completed %>%
+  group_by(stems) %>%
+  count(dictionary) %>%
+  mutate(word = dictionary[which.max(n)]) %>%
+  ungroup() %>%
+  select(stems, word) %>%
+  distinct() %>%
+  right_join(completed) %>%
+  select(-stems)
+```
+
+### step 8 - Pasting stem completed individual words back into their respective lyrics
+```{r}
+completed <- completed %>%
+  group_by(id) %>%
+  summarise(stemmedwords= str_c(word, collapse = " ")) %>%
+  ungroup()
+```
+
+### step 9 - Keeping a track of the processed lyrics with their own ID
+```{r warning=FALSE, message=FALSE}
+dt_lyrics <- dt_lyrics %>%
+  mutate(id = row_number()) %>%
+  inner_join(completed)
+```
+
+### step 10 - Exporting the processed text data into csv fiile
+```{r}
+save(dt_lyrics, file="C:/Users/YQW/Desktop/Lyrics/processed_lyrics.RData")
+```
+
