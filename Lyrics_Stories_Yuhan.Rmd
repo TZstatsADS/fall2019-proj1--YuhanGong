@@ -1,0 +1,160 @@
+---
+title: "Lyrics_Stories_Yuhan Gong"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+### step1 - load processed lyrics
+
+```{r}
+processed_lyrics <- get(load('C:/Users/YQW/Desktop/Lyrics/processed_lyrics.RData'))
+#head(processed_lyrics)
+```
+
+### step2 - load packages
+```{r warning=FALSE, message=FALSE}
+library(tm)
+library(data.table)
+library(tidytext)
+library(tidyverse)
+library(DT)
+library(wordcloud2)
+```
+
+
+## Part I - Find the most popular words in lyrics
+
+### step1 - Build term-document matrix 
+```{r}
+lyrics_stemcorpus <- Corpus(VectorSource(processed_lyrics$stemmedwords))
+lyrics_dtm <- DocumentTermMatrix(lyrics_stemcorpus)
+inspect(lyrics_dtm[1:3, 1:10])
+```
+
+### step2 - remove dimension of matrix (remove some less frequent words)
+```{r}
+lyrics_dtm2 <- removeSparseTerms(lyrics_dtm, 0.95)
+inspect(lyrics_dtm2[1:3, 1:10])
+```
+
+### step3 - visualize most 60 popular words in lyrics with wordcloud
+```{r}
+freq <- data.frame(sort(colSums(as.matrix(lyrics_dtm2)), decreasing=TRUE))
+freq.df <- data.frame(word=rownames(freq),freq=freq[,1])
+wordcloud2(freq.df,size=1.6,color='random-light',background='black')
+```
+
+### step 4 - visualize ranking by counts in bar charts
+```{r}
+freq2 <- head(freq,20)
+freq.df <- data.frame(word=rownames(freq2),freq=freq2[,1])
+
+ggplot(freq.df, aes(x = reorder(word, freq), y = freq, fill = word, label = freq)) +
+  geom_bar(stat="identity", show.legend = FALSE) +
+  coord_flip() +
+  labs(title = "Top 20 Most Popular Words in Music Lyrics", x = "Word", y = "Count") +
+  geom_label(aes(fill = word),colour = "white", fontface = "bold", show.legend = FALSE)
+
+```
+
+### Conclusion
+combined the visualization wordcloud plot and the bar chart, it is obvious that 'love' is the most popular word in lyrics. 'time', 'baby','day','life','heart','night','girl' are the next.
+
+## Part II - invesigate popular words in different song styles
+
+### step 1 - Visualizations for several different song's style
+
+#### Hip-Hop style
+```{r}
+## the code below wors normally in rmd chunck but cannot show the picture in htlm file for unknown reason. However if it is the first picture in my htlm, it can show. So I attach this code chunck and result in another htlm.
+
+lyrics <- data.frame(processed_lyrics)
+HH <- lyrics[lyrics$genre =='Hip-Hop',]
+
+lyrics_HH <- VCorpus(VectorSource(HH$stemmedwords))
+HH_dtm <- DocumentTermMatrix(lyrics_HH)
+HH_dtm2 <- removeSparseTerms(HH_dtm, 0.95)
+
+freq_HH <- data.frame(sort(colSums(as.matrix(HH_dtm2)), decreasing=TRUE))
+freq_HH.df <- data.frame(word=rownames(freq_HH),freq=freq_HH[,1])
+wordcloud2(freq_HH.df,size=1.6,color='random-light',shape='star')
+
+# some words come up, such as 'shit','ass','hit'
+```
+
+
+#### Metal style
+```{r}
+## the code below wors normally in rmd chunck but cannot show the picture in htlm file for unknown reason. However if it is the first picture in my htlm, it can show. So I attach this code chunck and result in another htlm.
+
+Metal <- lyrics[lyrics$genre =='Metal',]
+
+lyrics_Metal <- VCorpus(VectorSource(Metal$stemmedwords))
+Metal_dtm <- DocumentTermMatrix(lyrics_Metal)
+Metal_dtm2 <- removeSparseTerms(Metal_dtm, 0.95)
+
+freq_Metal <- data.frame(sort(colSums(as.matrix(Metal_dtm2)), decreasing=TRUE))
+freq_Metal.df <- data.frame(word=rownames(freq_Metal),freq=freq_Metal[,1])
+
+wordcloud2(freq_Metal.df,size=1.3,color='random-light',shape='cardioid')
+
+# lyrics quite different, with words 'die','death','live','pain'
+```
+
+
+#### Pop style
+```{r}
+## the code below wors normally in rmd chunck but cannot show the picture in htlm file for unknown reason. However if it is the first picture in my htlm, it can show. So I attach this code chunck and result in another htlm.
+
+Pop <- lyrics[lyrics$genre =='Pop',]
+
+lyrics_Pop <- VCorpus(VectorSource(Pop$stemmedwords))
+Pop_dtm <- DocumentTermMatrix(lyrics_Pop)
+Pop_dtm2 <- removeSparseTerms(Pop_dtm, 0.95)
+
+freq_Pop <- data.frame(sort(colSums(as.matrix(Pop_dtm2)), decreasing=TRUE))
+freq_Pop.df <- data.frame(word=rownames(freq_Pop),freq=freq_Pop[,1])
+
+wordcloud2(freq_Pop.df,size=1.3,color='random-light')
+
+## lyrics have common popular lyrics
+```
+
+
+### step 2 - investigate whether we can judge genre through the lyrics with models
+```{r}
+genre_m  <- as.matrix(lyrics_dtm2)
+genre_df <- data.frame(genre=lyrics$genre, genre_m)
+
+# split train and test
+samp_size <- floor(0.75 * nrow(genre_df))
+
+## set the seed to make your partition reproducible
+set.seed(2019)
+train_id <- sample(seq_len(nrow(genre_df)), size = samp_size)
+
+train <- genre_df[train_id, ]
+test <- genre_df[-train_id, ]
+
+```
+
+
+#### Naive Bayes Model - baseline
+```{r}
+library(e1071)
+library(caret)
+
+nb <- naiveBayes(genre ~ ., data = train)
+preds <- predict(nb, newdata=test)
+conf.mat <- confusionMatrix(preds, test$genre)
+conf.mat
+```
+
+#### conclusion
+the accuracy is rather low. Lyrics cannot successfully tell different genres of songs. In terms of genre's balanced accuracy, Metal, Jazz and Hip-Hop ranks top three. They have rather distinct lyrics style with words. But for the rest, many sons just have common words, such as 'love' and 'girl', thus it is difficult for us to tell
+
